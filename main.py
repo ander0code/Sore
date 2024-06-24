@@ -1,8 +1,11 @@
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
 from gtts import gTTS
 import networkx as nx
 import matplotlib.pyplot as plt
 import random
 import os
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 def Esquema_grafo_hospital():
     G = nx.Graph()  
@@ -75,11 +78,8 @@ def Esquema_grafo_hospital():
 
 hospital_graph = Esquema_grafo_hospital()
 
-
 def accidentes_aleatorios(G, punto_partida, target="Recepción", num_nodes=3):
-    # Crear una lista de todos los nodos excepto el punto de partida y el destino
     all_nodes = list(set(G.nodes()) - {punto_partida, target})
-    # Seleccionar aleatoriamente un número de nodos para bloquear, asegurándose de no incluir el punto de partida ni el destino
     nodes_to_block = random.sample(all_nodes, k=min(num_nodes, len(all_nodes)))
     G.remove_nodes_from(nodes_to_block)
     return nodes_to_block
@@ -90,9 +90,10 @@ def camnimo_mas_corto(G, punto_partida, target="Recepción"):
         return path
     except nx.NetworkXNoPath:
         return None
+
 def draw_hospital_graph(G, path=None, nodo_bloqueado=None):
     pos = nx.get_node_attributes(G, 'pos')
-    labels = {node: node for node in G.nodes() if node in pos}  # Asegurar que solo dibujamos nodos existentes
+    labels = {node: node for node in G.nodes() if node in pos}
 
     plt.figure(figsize=(12, 8))
     nx.draw(G, pos, with_labels=False, node_size=500, node_color="skyblue", font_size=10, font_weight="bold")
@@ -100,41 +101,77 @@ def draw_hospital_graph(G, path=None, nodo_bloqueado=None):
     nx.draw_networkx_edge_labels(G, pos, edge_labels={(u, v): d['weight'] for u, v, d in G.edges(data=True) if u in pos and v in pos})
 
     if path:
-        # Filtrar los segmentos de caminos que incluyen nodos eliminados
         path_edges = list(zip(path, path[1:]))
         path_edges = [edge for edge in path_edges if edge[0] in pos and edge[1] in pos]
         nx.draw_networkx_edges(G, pos, edgelist=path_edges, edge_color="r", width=2)
 
-    # Si los nodos bloqueados existen y se deben dibujar
     if nodo_bloqueado:
-        nodo_bloqueado = [node for node in nodo_bloqueado if node in pos]  # Verificar si los nodos bloqueados aún existen en el grafo
+        nodo_bloqueado = [node for node in nodo_bloqueado if node in pos]
         if nodo_bloqueado:
             nx.draw_networkx_nodes(G, pos, nodelist=nodo_bloqueado, node_color="red", node_size=500)
 
     plt.show()
 
+def ejecutar_simulacion():
+    global hospital_graph
+    hospital_graph = Esquema_grafo_hospital()
+    punto_partida = partida_combobox.get()
+    nodo_bloqueado = accidentes_aleatorios(hospital_graph, punto_partida, num_nodes=int(nodes_spinbox.get()))
+    ruta = camnimo_mas_corto(hospital_graph, punto_partida)
 
-punto_partida = "Sala de Espera" #se puede cambiar de lugar
+    if ruta:
+        texto = "EMERGENCIA DETECTADA. "
+        for i in range(1, len(ruta) - 1):
+            texto += f"Diríjase a la {ruta[i]}. "
+        texto += f"Desde la {ruta[-1]} salga del edificio siguiendo las señales de emergencia."
+    else:
+        texto = ("Todos los caminos disponibles han sido bloqueados, mantenga la calma y espere en su lugar, hasta que la ayuda llegue.")
 
-nodo_bloqueado = accidentes_aleatorios(hospital_graph, punto_partida, num_nodes=3)
-print("Nodos bloqueados:", nodo_bloqueado)
+    output = gTTS(text=str(texto), lang="es", slow=False)
+    output.save("audio1.mp3")
+    os.system("start audio1.mp3")
 
-ruta = camnimo_mas_corto(hospital_graph, punto_partida)
+    mostrar_resultado(ruta, nodo_bloqueado, texto)
 
-if ruta:
-    texto = "EMERGENCIA DETECTADA. "
-    for i in range(1, len(ruta) - 1):
-        texto += f"Diríjase a la {ruta[i]}. "
-    texto += f"Desde la {ruta[-1]} salga del edificio siguiendo las señales de emergencia."
-    print(texto)
-else:
-    texto = ("Todo los caminos disponibles han sido bloqueados, mantenga la calma y espere en su lugar, hasta que la ayuda llegue.")
-    print(texto)
+def mostrar_resultado(ruta, nodo_bloqueado, texto):
+    for widget in graph_frame.winfo_children():
+        widget.destroy()
+    
+    fig = plt.figure(figsize=(12, 8))
+    draw_hospital_graph(hospital_graph, ruta, nodo_bloqueado)
+    
+    canvas = FigureCanvasTkAgg(fig, master=graph_frame)
+    canvas.draw()
+    canvas.get_tk_widget().pack(side=TOP, fill=BOTH, expand=1)
 
-output = gTTS(text=str(texto), lang="es", slow=False)
-output.save("audio1.mp3")
+    result_text.set(texto)
 
-os.system("start audio1.mp3")
+app = ttk.Window("Simulación de Emergencias en Hospital")
+app.geometry("1200x800")
 
-draw_hospital_graph(hospital_graph, ruta, nodo_bloqueado)
+input_frame = ttk.Frame(app, padding=10)
+input_frame.pack(side=LEFT, fill=Y)
 
+graph_frame = ttk.Frame(app, padding=10)
+graph_frame.pack(side=RIGHT, fill=BOTH, expand=1)
+
+partida_label = ttk.Label(input_frame, text="Punto de Partida:")
+partida_label.pack(pady=5)
+
+partida_combobox = ttk.Combobox(input_frame, values=list(hospital_graph.nodes))
+partida_combobox.pack(pady=5)
+
+nodes_label = ttk.Label(input_frame, text="Número de Nodos a Bloquear:")
+nodes_label.pack(pady=5)
+
+nodes_spinbox = ttk.Spinbox(input_frame, from_=1, to=10)
+nodes_spinbox.pack(pady=5)
+
+run_button = ttk.Button(input_frame, text="Ejecutar Simulación", command=ejecutar_simulacion)
+run_button.pack(pady=20)
+
+result_text = ttk.StringVar()
+result_label = ttk.Label(input_frame, textvariable=result_text, wraplength=200)
+result_label.pack(pady=20)
+
+app.mainloop()
